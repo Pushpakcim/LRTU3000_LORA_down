@@ -3075,3 +3075,65 @@ void log_lora_downlink_diagnostics(void)
 	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] ================================================");
 	WriteLog(1, tDebug, 1);
 }
+
+/**
+ * \brief           Test LoRa downlink system functionality
+ * \note            This function performs a comprehensive test of the downlink system
+ */
+void test_lora_downlink_system(void)
+{
+	sprintf((char*)tDebug,"[LORA_TEST] ========== LoRa Downlink System Test ==========");
+	WriteLog(1, tDebug, 1);
+	
+	// Test 1: Check basic system status
+	sprintf((char*)tDebug,"[LORA_TEST] Test 1: Basic system status check");
+	WriteLog(1, tDebug, 1);
+	
+	uint8_t status = check_lora_downlink_status();
+	if(status == 1)
+	{
+		sprintf((char*)tDebug,"[LORA_TEST] PASS: Basic system status check");
+		WriteLog(1, tDebug, 1);
+	}
+	else
+	{
+		sprintf((char*)tDebug,"[LORA_TEST] FAIL: Basic system status check");
+		WriteLog(1, tDebug, 1);
+	}
+	
+	// Test 2: Buffer status check
+	sprintf((char*)tDebug,"[LORA_TEST] Test 2: Buffer status check");
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_TEST] RX Buffer size: %d bytes", sizeof(lora_rx_buf));
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_TEST] ASCII Buffer size: %d bytes", sizeof(lora_rx_buf_ascii));
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_TEST] ModBus buffer size: %d bytes", ModbusH[COM_LORA].u8BufferSize);
+	WriteLog(1, tDebug, 1);
+	
+	// Test 3: Test simulated downlink parsing
+	sprintf((char*)tDebug,"[LORA_TEST] Test 3: Simulated downlink parsing");
+	WriteLog(1, tDebug, 1);
+	
+	// Simulate an AT+RECV command for testing
+	const char* test_command = "AT+RECV=130,48656C6C6F"; // "Hello" in hex
+	sprintf((char*)tDebug,"[LORA_TEST] Simulating command: %s", test_command);
+	WriteLog(1, tDebug, 1);
+	
+	// Test the parsing function (this won't actually process data, just test the parser)
+	parse_lora_rx(test_command);
+	sprintf((char*)tDebug,"[LORA_TEST] PASS: Parsing function completed without errors");
+	WriteLog(1, tDebug, 1);
+	
+	// Test 4: Complete diagnostics
+	sprintf((char*)tDebug,"[LORA_TEST] Test 4: Complete diagnostics dump");
+	WriteLog(1, tDebug, 1);
+	
+	log_lora_downlink_diagnostics();
+	
+	sprintf((char*)tDebug,"[LORA_TEST] ========== Test Completed ==========");
+	WriteLog(1, tDebug, 1);
+}

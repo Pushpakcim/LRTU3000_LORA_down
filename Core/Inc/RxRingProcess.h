@@ -211,5 +211,6 @@ uint8_t parse_lora_network_mode(const char* str);
 // Enhanced downlink checking functions
 uint8_t check_lora_downlink_status(void);
 void log_lora_downlink_diagnostics(void);
+void test_lora_downlink_system(void);
 
 #endif /* INC_EC200U_RxRingProcess_H_ */

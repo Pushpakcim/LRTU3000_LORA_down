@@ -9,6 +9,7 @@
  * Includes
  *****************************************************************************/
 #include "main.h"
+#include <string.h>
 
 /**************************************************************************//**
  * Variable
@@ -245,51 +246,18 @@ unsigned char convertHextoAsciiString(char* i_HexString,char* O_AsciiString,unsi
 	}
 	return result;
 }
-//void WriteLog(uint8_t LogEnable,char *pData,uint8_t logType)
-//{
-//    if(LogEnable == 1)
-//    {
-////        if(ModbusH[COM_RS232_2].uModbusType == MB_DEBUG)
-////        {
-////            //if(logType == 1)
-////            {
-////                HAL_UART_Transmit(ModbusH[COM_RS232_2].port,(const uint8_t *)pData,strlen((const char *)pData),1000);
-////            }
-////        }
-////        if(ModbusH[COM_RS232_1].uModbusType == MB_DEBUG)
-////        {
-////            //if(logType == 1)
-////            {
-////                HAL_UART_Transmit(ModbusH[COM_RS232_1].port,(const uint8_t *)pData,strlen((const char *)pData),1000);
-////            }
-////        }
-////        if(ModbusH[COM_RS485_1].uModbusType == MB_DEBUG)
-////        {
-////            //if(logType == 1)
-////            {
-////                HAL_UART_Transmit(ModbusH[COM_RS485_1].port,(const uint8_t *)pData,strlen((const char *)pData),1000);
-////            }
-////        }
-////        if(ModbusH[COM_RS485_2].uModbusType == MB_DEBUG)
-////        {
-////            //if(logType == 1)
-////            {
-////                HAL_UART_Transmit(ModbusH[COM_RS485_2].port,(const uint8_t *)pData,strlen((const char *)pData),1000);
-////            }
-////        }
-//        //if(ModbusH[COM_RS485_2].uModbusType == MB_DEBUG)
-//        {
-//            //if(logType == 1)
-//            {
-//                HAL_UART_Transmit(&huart1,(const uint8_t *)pData,strlen((const char *)pData),1000);
-////                HAL_UART_Transmit(&huart4,(const uint8_t *)pData,1024,1000);
-//            }
-//        }
-//    }
-//
-//
-//
-//}
+void WriteLog(uint8_t LogEnable,const char *pData,uint8_t logType)
+{
+    if(LogEnable == 1)
+    {
+        // Send debug output to UART2 (typically used for debug console)
+        // Added length check to prevent buffer overflow
+        size_t len = strlen(pData);
+        if (len > 0 && len < 500) {
+            HAL_UART_Transmit(&huart2,(const uint8_t *)pData, len, 1000);
+        }
+    }
+}
 
 int FindSubstr(char *listPointer, char *itemPointer)
 {

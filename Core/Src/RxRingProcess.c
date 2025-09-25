@@ -91,6 +91,16 @@ unsigned int lora_rx_dataCurrentPosition=0;
 unsigned char ReceivedDataOfLoRaClient=0;
 osThreadId EC200U_RxRingProcess_TaskHandle;
 
+// LoRa Downlink Statistics
+unsigned int lora_downlink_total_count = 0;
+unsigned int lora_downlink_success_count = 0;
+unsigned int lora_downlink_error_count = 0;
+unsigned int lora_downlink_empty_count = 0;
+int lora_downlink_last_rssi = 0;
+int lora_downlink_last_snr = 0;
+unsigned int lora_downlink_last_port = 0;
+unsigned int lora_downlink_last_timestamp = 0;
+
 /**************************************************************************//**
  * Function name 	: EC200U_RxRingProcess_start
  * arguments		: 1)
@@ -2814,12 +2824,18 @@ uint8_t lora_device_firmware_version_number(const char* str)
 
 uint8_t parse_lora_rx(const char* str)
 {
+	char debug_msg[200];
+	
 	if (*str == 'A')
 	{
 		str += 8;  //skip => [AT+RECV=]
 	}
 
 	lora_rx_port = lwgsmi_parse_number(&str);
+	
+	// Update statistics
+	lora_downlink_total_count++;
+	lora_downlink_last_port = lora_rx_port;
 
 	if(lora_rx_port>0)
 	{
@@ -2829,6 +2845,21 @@ uint8_t parse_lora_rx(const char* str)
 		convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
 		memcpy(ModbusH[COM_LORA].u8RxBuffer,lora_rx_buf_ascii, strlen(lora_rx_buf)/2);
 		ModbusH[COM_LORA].u8BufferSize = strlen((const char *)lora_rx_buf)/2;
+		
+		// Update success statistics
+		lora_downlink_success_count++;
+		
+		// Log successful downlink reception
+		sprintf(debug_msg, "LoRa AT+RECV: Port=%d, Len=%d, HexData=%s\r\n", 
+				lora_rx_port, (int)strlen(lora_rx_buf)/2, lora_rx_buf);
+		WriteLog(1, debug_msg, 1);
+	} else {
+		// Update error statistics
+		lora_downlink_error_count++;
+		
+		// Log invalid port number
+		sprintf(debug_msg, "LoRa AT+RECV: Invalid port=%d\r\n", lora_rx_port);
+		WriteLog(1, debug_msg, 1);
 	}
 
 	return 1;
@@ -2843,6 +2874,8 @@ uint8_t parse_lora_rx(const char* str)
 uint8_t parse_lora_rx_event(const char* str)
 {
 	uint8_t temp[10];
+	char debug_msg[200];
+	
 	if (*str == '+')
 	{
 		str += 10;  //skip => [+EVT:RX_C:]
@@ -2852,12 +2885,44 @@ uint8_t parse_lora_rx_event(const char* str)
 	LoRa_Modem.lora_SNR = lwgsmi_parse_number(&str);
 	lwgsmi_parse_string_new(&str,(char*)temp,sizeof(temp), 1);
 	lora_rx_port = lwgsmi_parse_number(&str);
+	
 	memset(lora_rx_buf,0,sizeof(lora_rx_buf));
 	memset(lora_rx_buf_ascii,0,sizeof(lora_rx_buf_ascii));
 	lora_rx_dataCurrentPosition=0;
 	LoRa_Modem.lora_rxState =1;
-	//lwgsmi_parse_string(&str,(char*)lora_rx_buf,sizeof(lora_rx_buf), 1);
-	//convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
+	
+	// Update statistics
+	lora_downlink_total_count++;
+	lora_downlink_last_rssi = LoRa_Modem.lora_RSSI;
+	lora_downlink_last_snr = LoRa_Modem.lora_SNR;
+	lora_downlink_last_port = lora_rx_port;
+	
+	// Parse the actual hex payload data
+	lwgsmi_parse_string(&str,(char*)lora_rx_buf,sizeof(lora_rx_buf), 1);
+	
+	// Convert hex string to ASCII and copy to Modbus buffer
+	if(strlen(lora_rx_buf) > 0) {
+		convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
+		memcpy(ModbusH[COM_LORA].u8RxBuffer,lora_rx_buf_ascii, strlen(lora_rx_buf)/2);
+		ModbusH[COM_LORA].u8BufferSize = strlen((const char *)lora_rx_buf)/2;
+		
+		// Update success statistics
+		lora_downlink_success_count++;
+		
+		// Log downlink data received
+		sprintf(debug_msg, "LoRa Downlink: Port=%d, RSSI=%d, SNR=%d, Len=%d, Data=%s\r\n", 
+				lora_rx_port, LoRa_Modem.lora_RSSI, LoRa_Modem.lora_SNR, 
+				(int)strlen(lora_rx_buf)/2, lora_rx_buf);
+		WriteLog(1, debug_msg, 1);
+	} else {
+		// Update empty downlink statistics
+		lora_downlink_empty_count++;
+		
+		// Log empty downlink
+		sprintf(debug_msg, "LoRa Downlink Empty: Port=%d, RSSI=%d, SNR=%d\r\n", 
+				lora_rx_port, LoRa_Modem.lora_RSSI, LoRa_Modem.lora_SNR);
+		WriteLog(1, debug_msg, 1);
+	}
 
 	return 1;
 }
@@ -2901,4 +2966,82 @@ uint8_t parse_lora_linkCheck(const char* str)
 	}
 
 	return 1;
+}
+
+/**
+ * \brief           Check LoRa downlink status and connectivity to cloud
+ * \note            This function provides overall health check of downlink communication
+ */
+void check_lora_downlink_status(void)
+{
+	char status_msg[300];
+	unsigned int success_rate = 0;
+	
+	if(lora_downlink_total_count > 0) {
+		success_rate = (lora_downlink_success_count * 100) / lora_downlink_total_count;
+	}
+	
+	sprintf(status_msg, "LoRa Downlink Status: Total=%u, Success=%u, Errors=%u, Empty=%u, Success Rate=%u%%\r\n",
+			lora_downlink_total_count, lora_downlink_success_count, 
+			lora_downlink_error_count, lora_downlink_empty_count, success_rate);
+	WriteLog(1, status_msg, 1);
+	
+	if(lora_downlink_total_count > 0) {
+		sprintf(status_msg, "Last Downlink: Port=%u, RSSI=%d, SNR=%d, RxState=%d\r\n",
+				lora_downlink_last_port, lora_downlink_last_rssi, 
+				lora_downlink_last_snr, LoRa_Modem.lora_rxState);
+		WriteLog(1, status_msg, 1);
+	}
+	
+	// Check LoRa module connectivity
+	if(LoRa_Modem.lora_network_join_state == 1) {
+		WriteLog(1, "LoRa Network: Joined to cloud network\r\n", 1);
+	} else {
+		WriteLog(1, "LoRa Network: NOT joined to cloud network\r\n", 1);
+	}
+	
+	// Check signal quality
+	if(lora_downlink_last_rssi < -100) {
+		WriteLog(1, "LoRa Signal: POOR (RSSI < -100)\r\n", 1);
+	} else if(lora_downlink_last_rssi < -90) {
+		WriteLog(1, "LoRa Signal: FAIR (RSSI -90 to -100)\r\n", 1);
+	} else {
+		WriteLog(1, "LoRa Signal: GOOD (RSSI > -90)\r\n", 1);
+	}
+}
+
+/**
+ * \brief           Log detailed LoRa downlink statistics
+ */
+void log_lora_downlink_statistics(void)
+{
+	char stats_msg[200];
+	
+	WriteLog(1, "=== LoRa Downlink Statistics ===\r\n", 1);
+	
+	sprintf(stats_msg, "Total downlinks received: %u\r\n", lora_downlink_total_count);
+	WriteLog(1, stats_msg, 1);
+	
+	sprintf(stats_msg, "Successful downlinks: %u\r\n", lora_downlink_success_count);
+	WriteLog(1, stats_msg, 1);
+	
+	sprintf(stats_msg, "Failed/Error downlinks: %u\r\n", lora_downlink_error_count);
+	WriteLog(1, stats_msg, 1);
+	
+	sprintf(stats_msg, "Empty downlinks: %u\r\n", lora_downlink_empty_count);
+	WriteLog(1, stats_msg, 1);
+	
+	if(lora_downlink_total_count > 0) {
+		unsigned int success_rate = (lora_downlink_success_count * 100) / lora_downlink_total_count;
+		sprintf(stats_msg, "Success rate: %u%%\r\n", success_rate);
+		WriteLog(1, stats_msg, 1);
+	}
+	
+	sprintf(stats_msg, "Current LoRa Rx State: %d\r\n", LoRa_Modem.lora_rxState);
+	WriteLog(1, stats_msg, 1);
+	
+	sprintf(stats_msg, "Network Join State: %d\r\n", LoRa_Modem.lora_network_join_state);
+	WriteLog(1, stats_msg, 1);
+	
+	WriteLog(1, "================================\r\n", 1);
 }

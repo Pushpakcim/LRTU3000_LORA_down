@@ -138,6 +138,16 @@ extern unsigned char ReceivedDataOfMQTTClient;
 extern unsigned int lora_rx_dataCurrentPosition;
 extern unsigned char ReceivedDataOfLoRaClient;
 
+// LoRa Downlink Statistics
+extern unsigned int lora_downlink_total_count;
+extern unsigned int lora_downlink_success_count;
+extern unsigned int lora_downlink_error_count;
+extern unsigned int lora_downlink_empty_count;
+extern int lora_downlink_last_rssi;
+extern int lora_downlink_last_snr;
+extern unsigned int lora_downlink_last_port;
+extern unsigned int lora_downlink_last_timestamp;
+
 extern osThreadId EC200U_RxRingProcess_TaskHandle;
 extern char Flag_Reset_CFUN, Flag_Reset_QRESET,Flag_QPWRBACKOFF;
 
@@ -207,5 +217,9 @@ uint8_t parse_lora_adaptive_data_rate(const char* str);
 uint8_t parse_lora_class(const char* str);
 uint8_t parse_lora_active_region_band(const char* str);
 uint8_t parse_lora_network_mode(const char* str);
+
+// Cloud downlink checking functions
+void check_lora_downlink_status(void);
+void log_lora_downlink_statistics(void);
 
 #endif /* INC_EC200U_RxRingProcess_H_ */

@@ -7,6 +7,11 @@
 
 #include "Lora_AT_Types.h"
 #include "main.h"
+#include "RxRingProcess.h"
+
+// External declarations for logging
+extern char tDebug[500];
+extern void WriteLog(uint8_t LogEnable,const char *pData,uint8_t logType);
 
 /**************************************************************************//**
  * Macros
@@ -832,6 +837,7 @@ void StartLoraTask(void const * argument)
 {
 	osDelay(5000);
 	unsigned int networkCheckTime = 60;
+	unsigned int downlinkCheckTime = 0; // Periodic downlink diagnostics timer
 	char LED_Lora_blinking, LED_counter=0;
 	HAL_UART_Receive_IT(&huart2, &Lora_RX_Buff[0], sizeof(Lora_RX_Buff));
 	lora_PortBlockSemaphore = xSemaphoreCreateBinary();
@@ -928,15 +934,51 @@ void StartLoraTask(void const * argument)
 			}
 		}
 
+		// Enhanced downlink checking: Periodic downlink status and diagnostics
+		if(downlinkCheckTime++ > 120) // Check every 2 minutes (120 seconds)
+		{
+			downlinkCheckTime = 0;
+			
+			// Log comprehensive downlink diagnostics
+			log_lora_downlink_diagnostics();
+			
+			// Check downlink status and log results
+			if(check_lora_downlink_status() == 0)
+			{
+				sprintf((char*)tDebug,"[LORA_TASK] WARNING: Downlink status check indicates issues");
+				WriteLog(1, tDebug, 1);
+			}
+			else
+			{
+				sprintf((char*)tDebug,"[LORA_TASK] INFO: Downlink status check passed");
+				WriteLog(1, tDebug, 1);
+			}
+		}
+
 		if(ReceivedDataOfLoRaClient == 1)
 		{
 			ReceivedDataOfLoRaClient = 0;
+			
+			// Enhanced downlink checking: Log downlink data reception
+			sprintf((char*)tDebug,"[LORA_TASK] Processing received downlink data from cloud");
+			WriteLog(1, tDebug, 1);
+			
 			ProcessModbusSlave(&ModbusH[COM_LORA]);
 
 			if(ModbusH[5].u8RxBuffer[1]==03)
 			   {
 				flagLORAPubLogData=1;
+				
+				// Log successful processing of downlink command
+				sprintf((char*)tDebug,"[LORA_TASK] Downlink command processed: Function code 03 detected");
+				WriteLog(1, tDebug, 1);
 			   }
+			else
+			{
+				// Log other types of downlink data
+				sprintf((char*)tDebug,"[LORA_TASK] Downlink data processed: Function code %02X", ModbusH[5].u8RxBuffer[1]);
+				WriteLog(1, tDebug, 1);
+			}
 
 		}
 

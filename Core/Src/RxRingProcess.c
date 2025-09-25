@@ -13,6 +13,8 @@
 #include "main.h"
 #include "ATmodemTypes.h"
 #include "lwip.h"
+#include "json_parser.h"
+#include "modbus.h"
 /**************************************************************************//**
  * maCRO
  *****************************************************************************/
@@ -474,7 +476,16 @@ lwgsmr_t RxRingProcess(const void* data, size_t data_len)
         	}
         	else
         	{
-        		lora_rx_buf[lora_rx_dataCurrentPosition++] = ch;
+        		if(lora_rx_dataCurrentPosition < sizeof(lora_rx_buf) - 1)
+        		{
+        			lora_rx_buf[lora_rx_dataCurrentPosition++] = ch;
+        		}
+        		else
+        		{
+        			// Buffer overflow protection and logging
+        			sprintf((char*)tDebug,"[LORA_DOWNLINK] ERROR: RX buffer overflow, dropping character");
+        			WriteLog(1, tDebug, 1);
+        		}
         	}
         }
 //        else if (CMD_IS_CUR(LWGSM_CMD_COPS_GET_OPT) && lwgsm.msg->msg.cops_scan.read)
@@ -916,6 +927,9 @@ void lwgsmi_parse_received(lwgsm_recv_t* rcv)
         }
         else if (!strncmp(rcv->data, "+EVT:RX_C:", 10))  //+EVT:RX_C:-34:8:UNICAST:130:030001000902010300a100141427
         {
+        	// Enhanced downlink checking: Log raw EVT:RX_C event received
+        	sprintf((char*)tDebug,"[LORA_DOWNLINK] Raw EVT command: %s", rcv->data);
+        	WriteLog(1, tDebug, 1);
         	parse_lora_rx_event(rcv->data); /* Parse +EVT:RX_C: response  */
         }
         //======================== LORA =====================
@@ -1004,6 +1018,9 @@ void lwgsmi_parse_received(lwgsm_recv_t* rcv)
         //======================== LORA =====================
         if (!strncmp(rcv->data, "AT+RECV=", 8))
         {
+        	// Enhanced downlink checking: Log raw AT+RECV command received
+        	sprintf((char*)tDebug,"[LORA_DOWNLINK] Raw AT command: %s", rcv->data);
+        	WriteLog(1, tDebug, 1);
         	parse_lora_rx(rcv->data);
         }
     	else if (!strncmp(rcv->data, "AT+DEVEUI=", 10))
@@ -2821,14 +2838,47 @@ uint8_t parse_lora_rx(const char* str)
 
 	lora_rx_port = lwgsmi_parse_number(&str);
 
+	// Enhanced downlink checking: Log downlink reception
+	sprintf((char*)tDebug,"[LORA_DOWNLINK] AT+RECV received, port=%d", lora_rx_port);
+	WriteLog(1, tDebug, 1);
+
 	if(lora_rx_port>0)
 	{
 		memset(lora_rx_buf,0,sizeof(lora_rx_buf));
 		memset(lora_rx_buf_ascii,0,sizeof(lora_rx_buf_ascii));
 		lwgsmi_parse_string(&str,(char*)lora_rx_buf,sizeof(lora_rx_buf), 1);
-		convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
-		memcpy(ModbusH[COM_LORA].u8RxBuffer,lora_rx_buf_ascii, strlen(lora_rx_buf)/2);
-		ModbusH[COM_LORA].u8BufferSize = strlen((const char *)lora_rx_buf)/2;
+		
+		// Validate hex data before conversion
+		if(strlen((const char*)lora_rx_buf) > 0)
+		{
+			// Log raw hex data received from cloud
+			sprintf((char*)tDebug,"[LORA_DOWNLINK] Raw hex data: %s (len=%d)", lora_rx_buf, strlen((const char*)lora_rx_buf));
+			WriteLog(1, tDebug, 1);
+			
+			convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
+			memcpy(ModbusH[COM_LORA].u8RxBuffer,lora_rx_buf_ascii, strlen(lora_rx_buf)/2);
+			ModbusH[COM_LORA].u8BufferSize = strlen((const char *)lora_rx_buf)/2;
+			
+			// Set downlink reception status
+			LoRa_Modem.lora_rxState = 1;
+			ReceivedDataOfLoRaClient = 1;
+			
+			// Log successful downlink processing
+			sprintf((char*)tDebug,"[LORA_DOWNLINK] Success: Data processed, ModBus buffer size=%d", ModbusH[COM_LORA].u8BufferSize);
+			WriteLog(1, tDebug, 1);
+		}
+		else
+		{
+			// Log empty data error
+			sprintf((char*)tDebug,"[LORA_DOWNLINK] Error: Empty hex data received from cloud");
+			WriteLog(1, tDebug, 1);
+		}
+	}
+	else
+	{
+		// Log invalid port error
+		sprintf((char*)tDebug,"[LORA_DOWNLINK] Error: Invalid port number %d", lora_rx_port);
+		WriteLog(1, tDebug, 1);
 	}
 
 	return 1;
@@ -2852,10 +2902,21 @@ uint8_t parse_lora_rx_event(const char* str)
 	LoRa_Modem.lora_SNR = lwgsmi_parse_number(&str);
 	lwgsmi_parse_string_new(&str,(char*)temp,sizeof(temp), 1);
 	lora_rx_port = lwgsmi_parse_number(&str);
+	
+	// Enhanced downlink checking: Log RX event with signal quality
+	sprintf((char*)tDebug,"[LORA_DOWNLINK] RX_EVENT: RSSI=%d, SNR=%d, Port=%d, Type=%s", 
+			LoRa_Modem.lora_RSSI, LoRa_Modem.lora_SNR, lora_rx_port, temp);
+	WriteLog(1, tDebug, 1);
+	
 	memset(lora_rx_buf,0,sizeof(lora_rx_buf));
 	memset(lora_rx_buf_ascii,0,sizeof(lora_rx_buf_ascii));
 	lora_rx_dataCurrentPosition=0;
 	LoRa_Modem.lora_rxState =1;
+	
+	// Log successful RX event processing
+	sprintf((char*)tDebug,"[LORA_DOWNLINK] RX_EVENT processed successfully");
+	WriteLog(1, tDebug, 1);
+	
 	//lwgsmi_parse_string(&str,(char*)lora_rx_buf,sizeof(lora_rx_buf), 1);
 	//convert_OTA_HextoAsciiString(lora_rx_buf,(char*) lora_rx_buf_ascii);
 
@@ -2901,4 +2962,116 @@ uint8_t parse_lora_linkCheck(const char* str)
 	}
 
 	return 1;
+}
+
+/**
+ * \brief           Check LoRa downlink status from cloud
+ * \return          1 if downlink is functional, 0 if there are issues
+ */
+uint8_t check_lora_downlink_status(void)
+{
+	uint8_t status = 1; // Assume OK by default
+	
+	// Check if LoRa is joined to network
+	if(LoRa_Modem.lora_network_join_state == 0)
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] ERROR: Not joined to LoRa network");
+		WriteLog(1, tDebug, 1);
+		status = 0;
+	}
+	else
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] OK: Joined to LoRa network");
+		WriteLog(1, tDebug, 1);
+	}
+	
+	// Check signal quality
+	if(LoRa_Modem.lora_RSSI < -120)
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] WARNING: Poor signal quality RSSI=%d", LoRa_Modem.lora_RSSI);
+		WriteLog(1, tDebug, 1);
+	}
+	else
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] OK: Signal quality RSSI=%d, SNR=%d", 
+				LoRa_Modem.lora_RSSI, LoRa_Modem.lora_SNR);
+		WriteLog(1, tDebug, 1);
+	}
+	
+	// Check if Class C (for downlink reception)
+	if(LoRa_Modem.lora_class != 'C' && LoRa_Modem.lora_class != 2)
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] WARNING: Not in Class C mode (current=%c), downlink may be limited", 
+				LoRa_Modem.lora_class);
+		WriteLog(1, tDebug, 1);
+	}
+	
+	// Check recent downlink activity
+	if(LoRa_Modem.lora_rxState == 1)
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] OK: Recent downlink activity detected");
+		WriteLog(1, tDebug, 1);
+	}
+	else
+	{
+		sprintf((char*)tDebug,"[LORA_DOWNLINK_CHECK] INFO: No recent downlink activity");
+		WriteLog(1, tDebug, 1);
+	}
+	
+	return status;
+}
+
+/**
+ * \brief           Log comprehensive LoRa downlink diagnostics
+ */
+void log_lora_downlink_diagnostics(void)
+{
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] ========== LoRa Downlink Diagnostics ==========");
+	WriteLog(1, tDebug, 1);
+	
+	// Network status
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Network Join State: %d", LoRa_Modem.lora_network_join_state);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Network Mode: %d (0=ABP, 1=OTAA)", LoRa_Modem.lora_network_Mode);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Device Class: %c", LoRa_Modem.lora_class);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Active Region: %d", LoRa_Modem.lora_active_region);
+	WriteLog(1, tDebug, 1);
+	
+	// Signal quality
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] RSSI: %d dBm", LoRa_Modem.lora_RSSI);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] SNR: %d dB", LoRa_Modem.lora_SNR);
+	WriteLog(1, tDebug, 1);
+	
+	// Downlink status
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] RX State: %d", LoRa_Modem.lora_rxState);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Last RX Port: %d", lora_rx_port);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] ModBus Buffer Size: %d", ModbusH[COM_LORA].u8BufferSize);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] ReceivedDataOfLoRaClient: %d", ReceivedDataOfLoRaClient);
+	WriteLog(1, tDebug, 1);
+	
+	// Device info
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Device EUI: %.16s", LoRa_Modem.lora_dev_eui);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] App EUI: %.16s", LoRa_Modem.lora_app_eui);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] Firmware Version: %.24s", LoRa_Modem.lora_device_firmware_version_number);
+	WriteLog(1, tDebug, 1);
+	
+	sprintf((char*)tDebug,"[LORA_DIAGNOSTICS] ================================================");
+	WriteLog(1, tDebug, 1);
 }

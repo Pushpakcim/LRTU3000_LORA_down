@@ -7,6 +7,7 @@
 
 #include "Lora_AT_Types.h"
 #include "main.h"
+#include "RxRingProcess.h"
 
 /**************************************************************************//**
  * Macros
@@ -832,6 +833,7 @@ void StartLoraTask(void const * argument)
 {
 	osDelay(5000);
 	unsigned int networkCheckTime = 60;
+	unsigned int downlink_check_time = 0;  // Counter for periodic downlink status check
 	char LED_Lora_blinking, LED_counter=0;
 	HAL_UART_Receive_IT(&huart2, &Lora_RX_Buff[0], sizeof(Lora_RX_Buff));
 	lora_PortBlockSemaphore = xSemaphoreCreateBinary();
@@ -1200,6 +1202,14 @@ void StartLoraTask(void const * argument)
 			}
 			sample_count = 0;
 		}
+		
+		// Periodic downlink status check every 5 minutes (300 seconds)
+		downlink_check_time++;
+		if(downlink_check_time >= 300) {
+			downlink_check_time = 0;
+			check_lora_downlink_status();
+		}
+		
 		osDelay(1000);
 	}
 }
